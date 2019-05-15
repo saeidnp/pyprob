@@ -15,6 +15,8 @@ import copy
 import math
 from threading import Thread
 from termcolor import colored
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 
 from . import Batch, OfflineDataset, TraceBatchSampler, DistributedTraceBatchSampler, EmbeddingFeedForward, EmbeddingCNN2D5C, EmbeddingCNN3D5C
 from .optimizer_larc import LARC
@@ -547,9 +549,14 @@ class InferenceNetwork(nn.Module):
                     if (distributed_rank == 0) and (save_file_name_prefix is not None) and (save_every_sec is not None):
                         if time_batch - last_auto_save_time > save_every_sec:
                             last_auto_save_time = time_batch
-                            file_name = '{}_{}_traces_{}.network'.format(save_file_name_prefix, util.get_time_stamp(), self._total_train_traces)
+                            file_name = '{}_{}_traces_{}'.format(save_file_name_prefix, util.get_time_stamp(), self._total_train_traces)
                             print('\rSaving to disk...  ', end='\r')
-                            self._save(file_name)
+                            self._save('{}.network'.format(file_name))
+                            mpl.rcParams['axes.unicode_minus'] = False
+                            plt.switch_backend('agg')
+                            fig = plt.figure(figsize=(10,5))
+                            plt.plot(self._history_train_loss)
+                            plt.savefig('{}.png'.format(file_name))
 
                     time_last_batch = time_batch
                     if trace >= num_traces:
