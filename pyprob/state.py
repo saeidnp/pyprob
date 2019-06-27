@@ -22,6 +22,7 @@ _current_trace_inference_network_proposal_min_train_iterations = None
 _current_trace_previous_variable = None
 _current_trace_replaced_variable_proposal_distributions = {}
 _current_trace_observed_variables = None
+_current_trace_proposals = None
 _current_trace_execution_start = None
 _metropolis_hastings_trace = None
 _metropolis_hastings_site_address = None
@@ -182,16 +183,21 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                 address = address_base + '__' + str(instance)
                 inflated_distribution = _inflate(distribution)
                 if inflated_distribution is None:
-                    value = distribution.sample()
+                    if name in _current_trace_proposals:
+                        proposal_distribution = _current_trace_proposals[name]
+                    else:
+                        proposal_distribution = distribution
+                    value = proposal_distribution.sample()
                     log_prob = distribution.log_prob(value, sum=True)
-                    log_importance_weight = None
+                    proposal_log_prob = proposal_distribution.log_prob(value, sum=True)
+                    log_importance_weight = float(log_prob) - float(proposal_log_prob)
                 else:
                     value = inflated_distribution.sample()
                     log_prob = distribution.log_prob(value, sum=True)
                     log_importance_weight = float(log_prob) - float(inflated_distribution.log_prob(value, sum=True))  # To account for prior inflation
             elif _inference_engine == InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK:
                 if _importance_weighting == ImportanceWeighting.IW0:  # use prior as proposal for all replace=True addresses
-                    address = address_base + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
+                    address = address_base + '_' + str(name) + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
                     if control:
                         variable = Variable(distribution=distribution, value=None, address_base=address_base, address=address, instance=instance, log_prob=0., control=control, replace=replace, name=name, observed=observed, reused=reused)
                         update_previous_variable = False
@@ -230,7 +236,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                         log_importance_weight = None
                     address = address_base + '__' + str(instance)  # Address seen by everyone except the inference network
                 else:  # _importance_weighting == ImportanceWeighting.IW1
-                    address = address_base + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
+                    address = address_base + '_' + str(name) + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
                     if control:
                         variable = Variable(distribution=distribution, value=None, address_base=address_base, address=address, instance=instance, log_prob=0., control=control, replace=replace, name=name, observed=observed, reused=reused)
                         update_previous_variable = False
@@ -325,7 +331,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
             if _trace_mode == TraceMode.PRIOR:
                 address = address_base + '__' + str(instance)
             elif _trace_mode == TraceMode.PRIOR_FOR_INFERENCE_NETWORK:
-                address = address_base + '__' + ('replaced' if replace else str(instance))
+                address = address_base + '_' + str(name) + '__' + ('replaced' if replace else str(instance))
             inflated_distribution = _inflate(distribution)
             if inflated_distribution is None:
                 value = distribution.sample()
@@ -342,7 +348,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     return variable.value
 
 
-def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, metropolis_hastings_trace=None, address_dictionary=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0):
+def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, address_dictionary=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0):
     global _trace_mode
     global _inference_engine
     global _prior_inflation
@@ -357,6 +363,7 @@ def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflatio
     global _current_trace_inference_network
     global _current_trace_inference_network_proposal_min_train_iterations
     global _current_trace_observed_variables
+    global _current_trace_proposals
     global _address_dictionary
     _address_dictionary = address_dictionary
     _current_trace_root_function_name = func.__code__.co_name
@@ -364,6 +371,10 @@ def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflatio
         _current_trace_observed_variables = {}
     else:
         _current_trace_observed_variables = observe
+    if proposal is None:
+        _current_trace_proposals = {}
+    else:
+        _current_trace_proposals = proposal
     _current_trace_inference_network = inference_network
     if _current_trace_inference_network is None:
         if _inference_engine == InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK:
