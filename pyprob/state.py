@@ -31,7 +31,7 @@ _address_dictionary = None
 
 
 # _extract_address and _extract_target_of_assignment code by Tobias Kohn (kohnt@tobiaskohn.ch)
-def _extract_address(root_function_name):
+def _extract_address(root_function_name, user_specified_name):
     # Retun an address in the format:
     # 'instruction pointer' __ 'qualified function name'
     frame = sys._getframe(2)
@@ -50,7 +50,8 @@ def _extract_address(root_function_name):
         if n == root_function_name:
             break
         frame = frame.f_back
-    return '{}__{}'.format(ip, '__'.join(reversed(names)))
+    address_base_noname = '{}__{}'.format(ip, '__'.join(reversed(names)))
+    return '{}_{}'.format(address_base_noname, user_specified_name)
 
 
 def _extract_target_of_assignment():
@@ -99,7 +100,7 @@ def _inflate(distribution):
 def tag(value, name=None, address=None):
     global _current_trace
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__None'
+        address_base = _extract_address(_current_trace_root_function_name, name) + '__None'
     else:
         address_base = address + '__None'
     if _address_dictionary is not None:
@@ -116,7 +117,7 @@ def tag(value, name=None, address=None):
 def observe(distribution, value=None, name=None, address=None):
     global _current_trace
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__' + distribution._address_suffix
+        address_base = _extract_address(_current_trace_root_function_name, name) + '__' + distribution._address_suffix
     else:
         address_base = address + '__' + distribution._address_suffix
     if _address_dictionary is not None:
@@ -156,7 +157,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
         replace = False
 
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__' + distribution._address_suffix
+        address_base = _extract_address(_current_trace_root_function_name, name) + '__' + distribution._address_suffix
     else:
         address_base = address + '__' + distribution._address_suffix
     if _address_dictionary is not None:
@@ -197,7 +198,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                     log_importance_weight = float(log_prob) - float(inflated_distribution.log_prob(value, sum=True))  # To account for prior inflation
             elif _inference_engine == InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK:
                 if _importance_weighting == ImportanceWeighting.IW0:  # use prior as proposal for all replace=True addresses
-                    address = address_base + '_' + str(name) + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
+                    address = address_base + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
                     if control:
                         variable = Variable(distribution=distribution, value=None, address_base=address_base, address=address, instance=instance, log_prob=0., control=control, replace=replace, name=name, observed=observed, reused=reused)
                         update_previous_variable = False
@@ -236,7 +237,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                         log_importance_weight = None
                     address = address_base + '__' + str(instance)  # Address seen by everyone except the inference network
                 else:  # _importance_weighting == ImportanceWeighting.IW1
-                    address = address_base + '_' + str(name) + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
+                    address = address_base + '__' + ('replaced' if replace else str(instance))  # Address seen by inference network
                     if control:
                         variable = Variable(distribution=distribution, value=None, address_base=address_base, address=address, instance=instance, log_prob=0., control=control, replace=replace, name=name, observed=observed, reused=reused)
                         update_previous_variable = False
@@ -331,7 +332,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
             if _trace_mode == TraceMode.PRIOR:
                 address = address_base + '__' + str(instance)
             elif _trace_mode == TraceMode.PRIOR_FOR_INFERENCE_NETWORK:
-                address = address_base + '_' + str(name) + '__' + ('replaced' if replace else str(instance))
+                address = address_base + '__' + ('replaced' if replace else str(instance))
             inflated_distribution = _inflate(distribution)
             if inflated_distribution is None:
                 value = distribution.sample()
