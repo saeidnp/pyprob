@@ -207,7 +207,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                             if address not in _current_trace_replaced_variable_proposal_distributions:
                                 _current_trace_replaced_variable_proposal_distributions[address] = _current_trace_inference_network._infer_step(variable, prev_variable=_current_trace_previous_variable, proposal_min_train_iterations=_current_trace_inference_network_proposal_min_train_iterations)
                                 update_previous_variable = True
-                            proposal_distribution = _current_trace_replaced_variable_proposal_distributions[address]
+                            proposal_distribution = distribution
                         else:
                             proposal_distribution = _current_trace_inference_network._infer_step(variable, prev_variable=_current_trace_previous_variable, proposal_min_train_iterations=_current_trace_inference_network_proposal_min_train_iterations)
                             update_previous_variable = True
