@@ -63,6 +63,47 @@ class Model():
         traces.finalize()
         return traces
 
+
+    def _traces_conditional(self, condition, num_traces=10, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, map_func=None, silent=False, observe=None, file_name=None, likelihood_importance=1., *args, **kwargs):
+        generator = self._trace_generator(trace_mode=trace_mode, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, likelihood_importance=likelihood_importance, *args, **kwargs)
+        traces = Empirical(file_name=file_name)
+        if map_func is None:
+            map_func = lambda trace: trace
+        time_start = time.time()
+        if (util._verbosity > 1) and not silent:
+            len_str_num_traces = len(str(num_traces))
+            print('Time spent  | Time remain.| Progress             | {} | Traces/sec'.format('Trace'.ljust(len_str_num_traces * 2 + 1)))
+            prev_duration = 0
+        i = 0
+        while i < num_traces:
+            trace = next(generator)
+            if not condition(trace):
+                continue
+            i += 1
+
+            if (util._verbosity > 1) and not silent:
+                duration = time.time() - time_start
+                if (duration - prev_duration > util._print_refresh_rate) or (i == num_traces - 1):
+                    prev_duration = duration
+                    traces_per_second = (i + 1) / duration
+                    print('{} | {} | {} | {}/{} | {:,.2f}       '.format(util.days_hours_mins_secs_str(duration), util.days_hours_mins_secs_str((num_traces - i) / traces_per_second), util.progress_bar(i+1, num_traces), str(i+1).rjust(len_str_num_traces), num_traces, traces_per_second), end='\r')
+                    sys.stdout.flush()
+            if trace_mode == TraceMode.PRIOR:
+                log_weight = 1.
+            else:
+                log_weight = trace.log_importance_weight
+            traces.add(map_func(trace), log_weight)
+        if (util._verbosity > 1) and not silent:
+            print()
+        traces.finalize()
+        return traces
+
+    def prior_conditional(self, condition, num_traces=10, prior_inflation=PriorInflation.DISABLED, map_func=None, file_name=None, likelihood_importance=1., *args, **kwargs):
+        prior = self._traces_conditional(condition=condition, num_traces=num_traces, trace_mode=TraceMode.PRIOR, prior_inflation=prior_inflation, map_func=map_func, file_name=file_name, likelihood_importance=likelihood_importance, *args, **kwargs)
+        prior.rename('Prior, traces: {:,}'.format(prior.length))
+        prior.add_metadata(op='prior', num_traces=num_traces, prior_inflation=str(prior_inflation), likelihood_importance=likelihood_importance)
+        return prior
+
     def get_trace(self, *args, **kwargs):
         return next(self._trace_generator(*args, **kwargs))
 
