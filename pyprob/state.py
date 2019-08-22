@@ -27,7 +27,7 @@ _metropolis_hastings_trace = None
 _metropolis_hastings_site_address = None
 _metropolis_hastings_site_transition_log_prob = 0
 _address_dictionary = None
-_rejection_sampling_ids = []
+_active_rejection_samplings = []
 
 
 # _extract_address and _extract_target_of_assignment code by Tobias Kohn (kohnt@tobiaskohn.ch)
@@ -146,12 +146,18 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     global _current_trace
     global _current_trace_previous_variable
     global _current_trace_replaced_variable_proposal_distributions
+    global _active_rejection_samplings
+
+    replace = False
+    rejection_address = None
+    # If there is not active rejection sampling, the variable is not "replaced"
+    if len(_active_rejection_samplings) > 0:
+        replace = True
+        rejection_address = _active_rejection_samplings[-1].address
 
     # Only replace if controlled
     if not control:
         replace = False # TODO: why?
-
-    replace = not _rejection_sampling_ids # isempty(list)
 
     if _inference_engine == InferenceEngine.LIGHTWEIGHT_METROPOLIS_HASTINGS or _inference_engine == InferenceEngine.RANDOM_WALK_METROPOLIS_HASTINGS:
         control = True
@@ -304,6 +310,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
 
         variable = Variable(distribution=distribution, value=value, address_base=address_base, address=address, instance=instance, log_prob=log_prob, log_importance_weight=log_importance_weight, control=control, replace=replace, name=name, observed=observed, reused=reused)
 
+    variable.rejection_address = rejection_address
     _current_trace.add(variable)
     return variable.value
 
@@ -312,23 +319,43 @@ def rejection_sampling(control=True, name=None, address=None):
     global _current_trace
     global _current_trace_previous_variable
     global _current_trace_replaced_variable_proposal_distributions
+    global _active_rejection_samplings
+
+    rejection_sampling_suffix = 'rejsmp'
 
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__' + distribution._address_suffix
+        address_base = _extract_address(_current_trace_root_function_name) + '__' + rejection_sampling_suffix
     else:
-        address_base = address + '__' + distribution._address_suffix
+        address_base = address + '__' + rejection_sampling_suffix
     if _address_dictionary is not None:
         address_base = _address_dictionary.address_to_id(address_base)
-    instance = _current_trace.last_instance(address_base) + 1
+    if _active_rejection_samplings and _active_rejection_samplings[-1].address_base == address_base:
+        # It is not a new rejection sampling. Rather, it's retrying sampling
+        # We use the same instance number in such cases
+        instance = _current_trace.last_instance(address_base)
+        value = _current_trace.variables_dict_address_base[address_base].value + 1
+    else:
+        instance = _current_trace.last_instance(address_base) + 1
+        value = util.to_tensor(0)
+
     address = address_base + '__' + str(instance)
 
-    _rejection_sampling_ids.append(address)
+    variable = Variable(distribution=None, value=value, address_base=address_base, address=address, instance=instance, log_prob=0., rejsmp=True, name=name)
+    # Value shows the number of retries
+    _current_trace.add(variable)
+    if value == 0:
+        # Start of a new rejection sampling
+        _active_rejection_samplings.append(variable)
+    else:
+        # Retrying the same rejection sampling loop
+        # -> Replace the active rejectoin sampling variable
+        _active_rejection_samplings[-1] = variable
 
     # TODO: add a dummy variable or a tag to the trace?
 
 
 def rejection_sampling_end():
-    _rejection_sampling_ids.pop()
+    _active_rejection_samplings.pop()
 
     # TODO: add a dummy variable or a tag to the trace?
 
@@ -388,6 +415,9 @@ def _begin_trace():
 
 
 def _end_trace(result):
+    # Make sure there is no non-ended rejection sampling.
+    assert not _active_rejection_samplings
+
     execution_time_sec = time.time() - _current_trace_execution_start
     _current_trace.end(result, execution_time_sec)
     return _current_trace

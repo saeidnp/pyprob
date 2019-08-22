@@ -4,7 +4,7 @@ from . import util
 
 
 class Variable():
-    def __init__(self, distribution=None, value=None, address_base=None, address=None, instance=None, log_prob=None, log_importance_weight=None, control=False, replace=False, name=None, observed=False, reused=False, tagged=False):
+    def __init__(self, distribution=None, value=None, address_base=None, address=None, instance=None, log_prob=None, log_importance_weight=None, control=False, replace=False, name=None, observed=False, reused=False, tagged=False, rejsmp=False):
         self.distribution = distribution
         if value is None:
             self.value = None
@@ -28,6 +28,8 @@ class Variable():
         self.observed = observed
         self.reused = reused
         self.tagged = tagged
+        self.rejsmp = rejsmp
+        self.rejection_address = None
 
     def __repr__(self):
         # The 'Unknown' cases below are for handling pruned variables in offline training datasets
@@ -67,6 +69,7 @@ class Trace():
         self.variables_tagged = []
         self.variables_dict_address = {}
         self.variables_dict_address_base = {}
+        self.variables_rejsmp_dict_address = {}
         self.named_variables = {}
         self.result = None
         self.log_prob = 0.
@@ -100,6 +103,9 @@ class Trace():
         replaced_indices = []
         for i in range(len(self.variables)):
             variable = self.variables[i]
+            if variable.rejsmp:
+                self.variables_rejsmp_dict_address[variable.address] = variable
+                continue
             if variable.name is not None:
                 self.named_variables[variable.name] = variable
             if variable.control and i not in replaced_indices:
