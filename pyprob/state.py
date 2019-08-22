@@ -27,6 +27,7 @@ _metropolis_hastings_trace = None
 _metropolis_hastings_site_address = None
 _metropolis_hastings_site_transition_log_prob = 0
 _address_dictionary = None
+_rejection_sampling_ids = []
 
 
 # _extract_address and _extract_target_of_assignment code by Tobias Kohn (kohnt@tobiaskohn.ch)
@@ -148,7 +149,9 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
 
     # Only replace if controlled
     if not control:
-        replace = False
+        replace = False # TODO: why?
+
+    replace = not _rejection_sampling_ids # isempty(list)
 
     if _inference_engine == InferenceEngine.LIGHTWEIGHT_METROPOLIS_HASTINGS or _inference_engine == InferenceEngine.RANDOM_WALK_METROPOLIS_HASTINGS:
         control = True
@@ -340,6 +343,31 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
 
     _current_trace.add(variable)
     return variable.value
+
+
+def rejection_sampling(control=True, name=None, address=None):
+    global _current_trace
+    global _current_trace_previous_variable
+    global _current_trace_replaced_variable_proposal_distributions
+
+    if address is None:
+        address_base = _extract_address(_current_trace_root_function_name) + '__' + distribution._address_suffix
+    else:
+        address_base = address + '__' + distribution._address_suffix
+    if _address_dictionary is not None:
+        address_base = _address_dictionary.address_to_id(address_base)
+    instance = _current_trace.last_instance(address_base) + 1
+    address = address_base + '__' + str(instance)
+
+    _rejection_sampling_ids.append(address)
+
+    # TODO: add a dummy variable or a tag to the trace?
+
+
+def rejection_sampling_end():
+    _rejection_sampling_ids.pop()
+
+    # TODO: add a dummy variable or a tag to the trace?
 
 
 def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, metropolis_hastings_trace=None, address_dictionary=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0):
