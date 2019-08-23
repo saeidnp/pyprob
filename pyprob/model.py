@@ -5,6 +5,7 @@ import os
 import math
 import random
 from termcolor import colored
+import numpy as np
 
 from .distributions import Empirical
 from . import util, state, TraceMode, PriorInflation, InferenceEngine, InferenceNetwork, ImportanceWeighting, Optimizer, LearningRateScheduler, AddressDictionary
@@ -26,12 +27,43 @@ class Model():
     def forward(self):
         raise NotImplementedError()
 
-    def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, *args, **kwargs):
+    def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, _partial_trace=None, _target_rejection_address=None, *args, **kwargs):
         state._init_traces(func=self.forward, trace_mode=trace_mode, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
         while True:
             state._begin_trace()
             result = self.forward(*args, **kwargs)
             trace = state._end_trace(result)
+            if trace_mode == TraceMode.POSTERIOR and inference_engine==InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK and importance_weighting != ImportanceWeighting.IW0:
+                # TODO: ^^ double check the conditions ^^
+                for rejection_address, rejsmp_variable in trace.variables_rejsmp_dict_address.items():
+                    p_rejection_length = []
+                    for _ in range(10):
+                        try:
+                            partial_trace = state.PartialTrace(trace, rejection_address)
+                            state._init_traces(partial_trace=partial_trace, target_rejection_address=rejection_address, trace_mode=TraceMode.PRIOR, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
+                            state._begin_trace()
+                            self.forward(*args, **kwargs)
+                        except state.RejectionEndException as e:
+                            p_rejection_length.append(e.length)
+                    q_rejection_length = []
+                    for _ in range(10):
+                        try:
+                            partial_trace = state.PartialTrace(trace, rejection_address)
+                            state._init_traces(partial_trace=partial_trace, target_rejection_address=rejection_address, trace_mode=trace_mode, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
+                            state._begin_trace()
+                            self.forward(*args, **kwargs)
+                        except state.RejectionEndException as e:
+                            q_rejection_length.append(e.length)
+                    
+                    z_p_estimate = util.to_tensor(1 / np.mean([x for x in p_rejection_length]))
+                    z_q_estimate = util.to_tensor(1 / np.mean([x for x in q_rejection_length]))
+                    rejsmp_variable.log_importance_weight = torch.log(z_q_estimate / z_p_estimate)
+                    rejsmp_variable.log_prob = torch.log(util.to_tensor(1) / z_q_estimate)
+
+                    trace.log_importance_weight += rejsmp_variable.log_importance_weight
+                    trace.log_prob += rejsmp_variable.log_prob
+                    # TODO: compute trace's log_prob and log_importance_weight at the very end using a new function?
+
             yield trace
 
     def _traces(self, num_traces=10, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, map_func=None, silent=False, observe=None, file_name=None, likelihood_importance=1., *args, **kwargs):
