@@ -27,8 +27,8 @@ class Model():
     def forward(self):
         raise NotImplementedError()
 
-    def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, _partial_trace=None, _target_rejection_address=None, *args, **kwargs):
-        state._init_traces(func=self.forward, trace_mode=trace_mode, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
+    def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, _partial_trace=None, _target_rejection_address=None, *args, **kwargs):
+        state._init_traces(func=self.forward, trace_mode=trace_mode, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
         while True:
             state._begin_trace()
             result = self.forward(*args, **kwargs)
@@ -40,7 +40,7 @@ class Model():
                     for _ in range(10):
                         try:
                             partial_trace = state.PartialTrace(trace, rejection_address)
-                            state._init_traces(partial_trace=partial_trace, target_rejection_address=rejection_address, trace_mode=TraceMode.PRIOR, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
+                            state._init_traces(partial_trace=partial_trace, target_rejection_address=rejection_address, trace_mode=TraceMode.PRIOR, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
                             state._begin_trace()
                             self.forward(*args, **kwargs)
                         except state.RejectionEndException as e:
@@ -49,7 +49,7 @@ class Model():
                     for _ in range(10):
                         try:
                             partial_trace = state.PartialTrace(trace, rejection_address)
-                            state._init_traces(partial_trace=partial_trace, target_rejection_address=rejection_address, trace_mode=trace_mode, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
+                            state._init_traces(partial_trace=partial_trace, target_rejection_address=rejection_address, trace_mode=trace_mode, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
                             state._begin_trace()
                             self.forward(*args, **kwargs)
                         except state.RejectionEndException as e:

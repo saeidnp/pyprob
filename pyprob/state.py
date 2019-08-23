@@ -22,6 +22,7 @@ _current_trace_inference_network_proposal_min_train_iterations = None
 _current_trace_previous_variable = None
 _current_trace_replaced_variable_proposal_distributions = {}
 _current_trace_observed_variables = None
+_current_trace_proposals = None
 _current_trace_execution_start = None
 _metropolis_hastings_trace = None
 _metropolis_hastings_site_address = None
@@ -45,7 +46,7 @@ class RejectionEndException(Exception):
 
 
 # _extract_address and _extract_target_of_assignment code by Tobias Kohn (kohnt@tobiaskohn.ch)
-def _extract_address(root_function_name):
+def _extract_address(root_function_name, user_specified_name):
     # Retun an address in the format:
     # 'instruction pointer' __ 'qualified function name'
     frame = sys._getframe(2)
@@ -64,7 +65,8 @@ def _extract_address(root_function_name):
         if n == root_function_name:
             break
         frame = frame.f_back
-    return '{}__{}'.format(ip, '__'.join(reversed(names)))
+    address_base_noname = '{}__{}'.format(ip, '__'.join(reversed(names)))
+    return '{}__{}'.format(address_base_noname, user_specified_name)
 
 
 def _extract_target_of_assignment():
@@ -113,7 +115,7 @@ def _inflate(distribution):
 def tag(value, name=None, address=None):
     global _current_trace
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__None'
+        address_base = _extract_address(_current_trace_root_function_name, name) + '__None'
     else:
         address_base = address + '__None'
     if _address_dictionary is not None:
@@ -148,7 +150,7 @@ def _get_variable_from_partial_trace(address):
 def observe(distribution, value=None, name=None, address=None):
     global _current_trace
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__' + distribution._address_suffix
+        address_base = _extract_address(_current_trace_root_function_name, name) + '__' + distribution._address_suffix
     else:
         address_base = address + '__' + distribution._address_suffix
     if _address_dictionary is not None:
@@ -199,7 +201,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
         replace = False
 
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__' + distribution._address_suffix
+        address_base = _extract_address(_current_trace_root_function_name, name) + '__' + distribution._address_suffix
     else:
         address_base = address + '__' + distribution._address_suffix
     if _address_dictionary is not None:
@@ -231,9 +233,14 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                     address = address_base + '__' + str(instance)
                     inflated_distribution = _inflate(distribution)
                     if inflated_distribution is None:
-                        value = distribution.sample()
+                        if name in _current_trace_proposals:
+                            proposal_distribution = _current_trace_proposals[name]
+                        else:
+                            proposal_distribution = distribution
+                        value = proposal_distribution.sample()
                         log_prob = distribution.log_prob(value, sum=True)
-                        log_importance_weight = None
+                        proposal_log_prob = proposal_distribution.log_prob(value, sum=True)
+                        log_importance_weight = float(log_prob) - float(proposal_log_prob)
                     else:
                         value = inflated_distribution.sample()
                         log_prob = distribution.log_prob(value, sum=True)
@@ -349,8 +356,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                     log_importance_weight = float(log_prob) - float(inflated_distribution.log_prob(value, sum=True))  # To account for prior inflation
 
             variable = Variable(distribution=distribution, value=value, address_base=address_base, address=address, instance=instance, log_prob=log_prob, log_importance_weight=log_importance_weight, control=control, replace=replace, name=name, observed=observed, reused=reused)
-
-        variable.rejection_address = rejection_address
+            variable.rejection_address = rejection_address
     _current_trace.add(variable)
     return variable.value
 
@@ -364,7 +370,7 @@ def rejection_sampling(control=True, name=None, address=None):
     rejection_sampling_suffix = 'rejsmp'
 
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name) + '__' + rejection_sampling_suffix
+        address_base = _extract_address(_current_trace_root_function_name, name) + '__' + rejection_sampling_suffix
     else:
         address_base = address + '__' + rejection_sampling_suffix
     if _address_dictionary is not None:
@@ -408,7 +414,7 @@ def rejection_sampling_end():
     # TODO: add a dummy variable or a tag to the trace?
 
 
-def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, metropolis_hastings_trace=None, address_dictionary=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, partial_trace=None, target_rejection_address=None):
+def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, address_dictionary=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, partial_trace=None, target_rejection_address=None):
     global _trace_mode
     global _inference_engine
     global _prior_inflation
@@ -431,6 +437,7 @@ def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflatio
     global _current_trace_inference_network
     global _current_trace_inference_network_proposal_min_train_iterations
     global _current_trace_observed_variables
+    global _current_trace_proposals
     global _address_dictionary
     _address_dictionary = address_dictionary
     _current_trace_root_function_name = func.__code__.co_name
@@ -438,6 +445,10 @@ def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflatio
         _current_trace_observed_variables = {}
     else:
         _current_trace_observed_variables = observe
+    if proposal is None:
+        _current_trace_proposals = {}
+    else:
+        _current_trace_proposals = proposal
     _current_trace_inference_network = inference_network
     if _current_trace_inference_network is None:
         if _inference_engine == InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK:
