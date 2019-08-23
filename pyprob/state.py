@@ -51,7 +51,7 @@ def _extract_address(root_function_name, user_specified_name):
             break
         frame = frame.f_back
     address_base_noname = '{}__{}'.format(ip, '__'.join(reversed(names)))
-    return '{}_{}'.format(address_base_noname, user_specified_name)
+    return '{}__{}'.format(address_base_noname, user_specified_name)
 
 
 def _extract_target_of_assignment():
