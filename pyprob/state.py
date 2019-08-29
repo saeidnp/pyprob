@@ -149,6 +149,12 @@ def _get_variable_from_partial_trace(address):
 
 def observe(distribution, value=None, name=None, address=None):
     global _current_trace
+    global _active_rejection_samplings
+
+    rejection_address = None
+    if len(_active_rejection_samplings) > 0:
+        rejection_address = _active_rejection_samplings[-1].address
+
     if address is None:
         address_base = _extract_address(_current_trace_root_function_name, name) + '__' + distribution._address_suffix
     else:
@@ -175,6 +181,7 @@ def observe(distribution, value=None, name=None, address=None):
         else:
             log_importance_weight = None  # TODO: Check the reason/behavior for this
         variable = Variable(distribution=distribution, value=value, address_base=address_base, address=address, instance=instance, log_prob=log_prob, log_importance_weight=log_importance_weight, observed=True, name=name)
+        variable.rejection_address = rejection_address
     _current_trace.add(variable)
     
 
@@ -381,6 +388,9 @@ def rejection_sampling(control=True, name=None, address=None):
         instance = _current_trace.last_instance(address_base)
         value = _current_trace.variables_dict_address_base[address_base].value + 1
     else:
+        if _active_rejection_samplings:
+            print(_active_rejection_samplings[-1].address_base)
+            print(address_base)
         instance = _current_trace.last_instance(address_base) + 1
         value = util.to_tensor(1)
 
@@ -414,19 +424,12 @@ def rejection_sampling_end():
     # TODO: add a dummy variable or a tag to the trace?
 
 
-def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, address_dictionary=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, partial_trace=None, target_rejection_address=None):
+def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, address_dictionary=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0):
     global _trace_mode
     global _inference_engine
     global _prior_inflation
     global _likelihood_importance
     global _importance_weighting
-    global _current_partial_trace
-    global _active_rejection_samplings
-    global _target_rejection_address
-
-    _active_rejection_samplings = []
-    _current_partial_trace = partial_trace
-    _target_rejection_address = target_rejection_address
 
     _trace_mode = trace_mode
     _inference_engine = inference_engine
@@ -470,11 +473,19 @@ def _init_traces(func, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflatio
             _metropolis_hastings_site_address = variable.address
 
 
-def _begin_trace():
+def _begin_trace(partial_trace=None, target_rejection_address=None):
     global _current_trace
     global _current_trace_previous_variable
     global _current_trace_replaced_variable_proposal_distributions
     global _current_trace_execution_start
+    global _current_partial_trace
+    global _active_rejection_samplings
+    global _target_rejection_address
+
+    _active_rejection_samplings = []
+    _current_partial_trace = partial_trace
+    _target_rejection_address = target_rejection_address
+
     _current_trace_execution_start = time.time()
     _current_trace = Trace()
     _current_trace_previous_variable = None
@@ -483,7 +494,10 @@ def _begin_trace():
 
 def _end_trace(result):
     # Make sure there is no non-ended rejection sampling.
-    assert not _active_rejection_samplings
+    global _active_rejection_samplings
+    if _active_rejection_samplings:
+        print(f'{len(_active_rejection_samplings)}, {_active_rejection_samplings[-1].address}')
+    assert len(_active_rejection_samplings) == 0
 
     execution_time_sec = time.time() - _current_trace_execution_start
     _current_trace.end(result, execution_time_sec)
