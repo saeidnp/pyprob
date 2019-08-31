@@ -198,6 +198,8 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     if len(_active_rejection_samplings) > 0:
         replace = True
         rejection_address = _active_rejection_samplings[-1].address
+        if not _active_rejection_samplings[-1].control:
+            control = False
 
     # Only replace if controlled
     if not control:
