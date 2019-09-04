@@ -198,7 +198,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     if len(_active_rejection_samplings) > 0:
         replace = True
         rejection_address = _active_rejection_samplings[-1].address
-        if not _active_rejection_samplings[-1].control:
+        if _active_rejection_samplings[-1].control == False:
             control = False
 
     # Only replace if controlled
@@ -242,7 +242,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                     address = address_base + '__' + str(instance)
                     inflated_distribution = _inflate(distribution)
                     if inflated_distribution is None:
-                        if name in _current_trace_proposals:
+                        if name in _current_trace_proposals and control:
                             proposal_distribution = _current_trace_proposals[name]
                         else:
                             proposal_distribution = distribution
@@ -402,7 +402,7 @@ def rejection_sampling(control=True, name=None, address=None):
         variable = _get_variable_from_partial_trace(address)
         assert value == variable.value
     else:
-        variable = Variable(distribution=None, value=value, address_base=address_base, address=address, instance=instance, log_prob=0., rejsmp=True, name=name)
+        variable = Variable(distribution=None, value=value, address_base=address_base, address=address, instance=instance, log_prob=0., log_importance_weight=None, rejsmp=True, name=name, control=control)
         # Value shows the number of retries
 
     _current_trace.add(variable)
