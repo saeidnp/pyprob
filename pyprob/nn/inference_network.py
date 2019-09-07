@@ -15,6 +15,7 @@ import copy
 import math
 from threading import Thread
 from termcolor import colored
+from .utils import update_sacred_run
 
 from . import Batch, OfflineDataset, TraceBatchSampler, DistributedTraceBatchSampler, EmbeddingFeedForward, EmbeddingCNN2D5C, EmbeddingCNN3D5C
 from .optimizer_larc import LARC
@@ -375,7 +376,7 @@ class InferenceNetwork(nn.Module):
             # print('Setting learning rate scheduler state')
             self._learning_rate_scheduler.load_state_dict(state_dict)
 
-    def optimize(self, num_traces, dataset, dataset_valid=None, num_traces_end=1e9, batch_size=64, valid_every=None, optimizer_type=Optimizer.ADAM, learning_rate_init=0.0001, learning_rate_end=1e-6, learning_rate_scheduler_type=LearningRateScheduler.NONE, momentum=0.9, weight_decay=1e-5, save_file_name_prefix=None, save_every_sec=600, distributed_backend=None, distributed_params_sync_every_iter=10000, distributed_num_buckets=10, dataloader_offline_num_workers=0, stop_with_bad_loss=False, log_file_name=None):
+    def optimize(self, num_traces, dataset, dataset_valid=None, num_traces_end=1e9, batch_size=64, valid_every=None, optimizer_type=Optimizer.ADAM, learning_rate_init=0.0001, learning_rate_end=1e-6, learning_rate_scheduler_type=LearningRateScheduler.NONE, momentum=0.9, weight_decay=1e-5, save_file_name_prefix=None, save_every_sec=600, distributed_backend=None, distributed_params_sync_every_iter=10000, distributed_num_buckets=10, dataloader_offline_num_workers=0, stop_with_bad_loss=False, log_file_name=None, sacred_run=None):
         if not self._layers_initialized:
             self._init_layers_observe_embedding(self._observe_embeddings, example_trace=dataset.__getitem__(0))
             self._init_layers()
@@ -529,6 +530,12 @@ class InferenceNetwork(nn.Module):
                     self._history_train_loss.append(loss)
                     self._history_train_loss_trace.append(self._total_train_traces)
                     traces_per_second = batch.size * distributed_world_size / (time_batch - time_last_batch)
+
+                    # update sacred (if used)
+                    update_sacred_run(sacred_run, loss,
+                                      self._total_train_traces,
+                                      total_train_seconds=self._total_train_seconds)
+
                     if dataset_valid is not None:
                         if trace - last_validation_trace > valid_every:
                             print('\nComputing validation loss')
@@ -543,6 +550,11 @@ class InferenceNetwork(nn.Module):
                             self._history_valid_loss.append(valid_loss)
                             self._history_valid_loss_trace.append(self._total_train_traces)
                             last_validation_trace = trace - 1
+
+                            # update sacred (if used)
+                            update_sacred_run(sacred_run, valid_loss,
+                                              self._total_train_traces,
+                                              valid=True)
 
                     if (distributed_rank == 0) and (save_file_name_prefix is not None) and (save_every_sec is not None):
                         if time_batch - last_auto_save_time > save_every_sec:
