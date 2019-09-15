@@ -50,7 +50,7 @@ class Model():
             trace = state._end_trace(result)
 
             ## Fix trace weights
-            if trace_mode == TraceMode.POSTERIOR and importance_weighting != ImportanceWeighting.IW0 and (inference_engine==InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK or proposal is not None):
+            if trace_mode == TraceMode.POSTERIOR and importance_weighting == ImportanceWeighting.IW1 and (inference_engine==InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK or proposal is not None):
                 # ^^ Conditions for rejection sampling constants being needed
                 for rejection_address, rejsmp_variable in trace.variables_rejsmp_dict_address.items():
                     state._init_traces(trace_mode=trace_mode, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)

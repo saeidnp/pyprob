@@ -71,7 +71,8 @@ class LearningRateScheduler(enum.Enum):
 
 class ImportanceWeighting(enum.Enum):
     IW0 = 0  # use prior as proposal for all replace=True addresses
-    IW1 = 1
+    IW1 = 1  # Discard all the rejected samples
+    IW2 = 2  # Do not discard anything
 
 
 def set_random_seed(seed=None):

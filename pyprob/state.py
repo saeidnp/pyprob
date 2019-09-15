@@ -195,7 +195,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     replace = False
     rejection_address = None
     # If there is not active rejection sampling, the variable is not "replaced"
-    if len(_active_rejection_samplings) > 0:
+    if len(_active_rejection_samplings) > 0 and _importance_weighting != ImportanceWeighting.IW2:
         replace = True
         rejection_address = _active_rejection_samplings[-1].address
         if _active_rejection_samplings[-1].control == False:
