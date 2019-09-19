@@ -242,7 +242,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                     address = address_base + '__' + str(instance)
                     inflated_distribution = _inflate(distribution)
                     if inflated_distribution is None:
-                        if name in _current_trace_proposals and control:
+                        if name in _current_trace_proposals and control and _importance_weighting != ImportanceWeighting.IW0:
                             proposal_distribution = _current_trace_proposals[name]
                         else:
                             proposal_distribution = distribution
