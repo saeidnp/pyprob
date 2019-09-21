@@ -8,6 +8,7 @@ from termcolor import colored
 from .distributions import Normal, Categorical, Uniform, TruncatedNormal
 from .trace import Variable, Trace
 from . import util, TraceMode, PriorInflation, InferenceEngine, ImportanceWeighting
+from .nn import InferenceNetworkLSTM
 
 
 _trace_mode = TraceMode.PRIOR
@@ -28,9 +29,44 @@ _metropolis_hastings_trace = None
 _metropolis_hastings_site_address = None
 _metropolis_hastings_site_transition_log_prob = 0
 _address_dictionary = None
-_active_rejection_samplings = []
+_rejection_sampling_stack = []
 _current_partial_trace = None
 _target_rejection_address = None
+
+
+class RejectionSamplingStack:
+    def __init__(self):
+        '''
+        Stores a stack of tuples (rejection sampling variabe, LSTM hidden state) if a network is present and has a hidden state,
+        otherwise, the (rejection sampling variabe, None)
+        '''
+        self._stack = []
+    
+    def push(self, variable):
+        hidden_state = None
+        if _current_trace_inference_network is not None and isinstance(_current_trace_inference_network, InferenceNetworkLSTM):
+            hidden_state = _current_trace_inference_network._infer_lstm_state
+        self._stack.append([variable, hidden_state])
+
+    def updateTopVariable(self, variable):
+        self._stack[-1][0] = variable
+
+    def pop(self):
+        self._stack.pop()
+
+    @property
+    def top_variable(self):
+        return self._stack[-1][0]
+
+    @property
+    def top_hidden(self):
+        return self._stack[-1][1]
+
+    def size(self):
+        return len(self._stack)
+
+    def isempty(self):
+        return self.size() == 0
 
 
 class PartialTrace:
@@ -149,11 +185,11 @@ def _get_variable_from_partial_trace(address):
 
 def observe(distribution, value=None, name=None, address=None):
     global _current_trace
-    global _active_rejection_samplings
+    global RejectionSamplingStack
 
     rejection_address = None
-    if len(_active_rejection_samplings) > 0:
-        rejection_address = _active_rejection_samplings[-1].address
+    if not _rejection_sampling_stack.isempty():
+        rejection_address = _rejection_sampling_stack.top_variable.address
 
     if address is None:
         address_base = _extract_address(_current_trace_root_function_name, name) + '__' + distribution._address_suffix
@@ -189,16 +225,16 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     global _current_trace
     global _current_trace_previous_variable
     global _current_trace_replaced_variable_proposal_distributions
-    global _active_rejection_samplings
+    global _rejection_sampling_stack
     global _current_partial_trace
 
     replace = False
     rejection_address = None
     # If there is not active rejection sampling, the variable is not "replaced"
-    if len(_active_rejection_samplings) > 0 and _importance_weighting != ImportanceWeighting.IW2:
+    if (not _rejection_sampling_stack.isempty()) and _importance_weighting != ImportanceWeighting.IW2:
         replace = True
-        rejection_address = _active_rejection_samplings[-1].address
-        if _active_rejection_samplings[-1].control == False:
+        rejection_address = _rejection_sampling_stack.top_variable.address
+        if _rejection_sampling_stack.top_variable.control == False:
             control = False
 
     # Only replace if controlled
@@ -374,7 +410,7 @@ def rejection_sampling(control=True, name=None, address=None):
     global _current_trace
     global _current_trace_previous_variable
     global _current_trace_replaced_variable_proposal_distributions
-    global _active_rejection_samplings
+    global _rejection_sampling_stack
 
     rejection_sampling_suffix = 'rejsmp'
 
@@ -384,15 +420,12 @@ def rejection_sampling(control=True, name=None, address=None):
         address_base = address + '__' + rejection_sampling_suffix
     if _address_dictionary is not None:
         address_base = _address_dictionary.address_to_id(address_base)
-    if _active_rejection_samplings and _active_rejection_samplings[-1].address_base == address_base:
+    if (not _rejection_sampling_stack.isempty()) and _rejection_sampling_stack.top_variable.address_base == address_base:
         # It is not a new rejection sampling. Rather, it's retrying sampling
         # We use the same instance number in such cases
         instance = _current_trace.last_instance(address_base)
         value = _current_trace.variables_dict_address_base[address_base].value + 1
     else:
-        if _active_rejection_samplings:
-            print(_active_rejection_samplings[-1].address_base)
-            print(address_base)
         instance = _current_trace.last_instance(address_base) + 1
         value = util.to_tensor(1)
 
@@ -408,20 +441,22 @@ def rejection_sampling(control=True, name=None, address=None):
     _current_trace.add(variable)
     if value == 1:
         # Start of a new rejection sampling
-        _active_rejection_samplings.append(variable)
+        _rejection_sampling_stack.push(variable)
     else:
         # Retrying the same rejection sampling loop
         # -> Replace the active rejectoin sampling variable
-        _active_rejection_samplings[-1] = variable
-
-    # TODO: add a dummy variable or a tag to the trace?
+        # -> Restore LSTM's hidden state (if exists)
+        hidden_state = _rejection_sampling_stack.top_hidden
+        if hidden_state is not None:
+            _current_trace_inference_network._infer_lstm_state = hidden_state
+        _rejection_sampling_stack.updateTopVariable(variable)
 
 
 def rejection_sampling_end():
     global _target_rejection_address
-    if _target_rejection_address == _active_rejection_samplings[-1].address:
-        raise RejectionEndException(int(_active_rejection_samplings[-1].value.item()))
-    _active_rejection_samplings.pop()
+    if _target_rejection_address == _rejection_sampling_stack.top_variable.address:
+        raise RejectionEndException(int(_rejection_sampling_stack.top_variable.value.item()))
+    _rejection_sampling_stack.pop()
 
     # TODO: add a dummy variable or a tag to the trace?
 
@@ -481,10 +516,10 @@ def _begin_trace(partial_trace=None, target_rejection_address=None):
     global _current_trace_replaced_variable_proposal_distributions
     global _current_trace_execution_start
     global _current_partial_trace
-    global _active_rejection_samplings
+    global _rejection_sampling_stack
     global _target_rejection_address
 
-    _active_rejection_samplings = []
+    _rejection_sampling_stack = RejectionSamplingStack()
     _current_partial_trace = partial_trace
     _target_rejection_address = target_rejection_address
 
@@ -496,10 +531,10 @@ def _begin_trace(partial_trace=None, target_rejection_address=None):
 
 def _end_trace(result):
     # Make sure there is no non-ended rejection sampling.
-    global _active_rejection_samplings
-    if _active_rejection_samplings:
-        print(f'{len(_active_rejection_samplings)}, {_active_rejection_samplings[-1].address}')
-    assert len(_active_rejection_samplings) == 0
+    global _rejection_sampling_stack
+    if not _rejection_sampling_stack.isempty():
+        print(f'{_rejection_sampling_stack.size()}, {_rejection_sampling_stack.top_variable.address}')
+    assert _rejection_sampling_stack.isempty()
 
     execution_time_sec = time.time() - _current_trace_execution_start
     _current_trace.end(result, execution_time_sec)
