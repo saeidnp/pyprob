@@ -27,22 +27,39 @@ class Model():
     def forward(self):
         raise NotImplementedError()
 
-    def _estimate_z(self, trace, rejection_address, num_z_estimate_samples, *args, **kwargs):
-        if num_z_estimate_samples < 1:
+    def _estimate_z_inv(self, trace, rejection_address, num_estimate_samples, *args, **kwargs):
+        if num_estimate_samples < 1:
             return 1
 
         rejection_length_list = []
-        for _ in range(num_z_estimate_samples):
+        for _ in range(num_estimate_samples):
             try:
                 partial_trace = state.PartialTrace(trace, rejection_address)
                 state._begin_trace(partial_trace=partial_trace, target_rejection_address=rejection_address)
                 self.forward(*args, **kwargs)
             except state.RejectionEndException as e:
                 rejection_length_list.append(e.length)
-        assert len(rejection_length_list) == num_z_estimate_samples, f'When estimating Z, all function calls should throw an exception ({len(rejection_length_list)} != {num_z_estimate_samples})'
-        return 1 / np.mean([x for x in rejection_length_list])
+        assert len(rejection_length_list) == num_estimate_samples, f'When estimating Z, all function calls should throw an exception ({len(rejection_length_list)} != {num_estimate_samples})'
+        return np.mean([x for x in rejection_length_list])
 
-    def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, _partial_trace=None, _target_rejection_address=None, num_z_estimate_samples=10, *args, **kwargs):
+    def _estimate_z(self, trace, rejection_address, num_estimate_samples, *args, **kwargs):
+        if num_estimate_samples < 1:
+            return 1
+
+        rejection_length_list = []
+        while len(rejection_length_list) < num_estimate_samples:
+            try:
+                partial_trace = state.PartialTrace(trace, rejection_address)
+                state._begin_trace(partial_trace=partial_trace, target_rejection_address=rejection_address)
+                self.forward(*args, **kwargs)
+            except state.RejectionEndException as e:
+                for x in [0] * (e.length-1) + [1]:
+                    rejection_length_list.append(x)
+                    #if len(rejection_length_list) >= num_estimate_samples:
+                    #    break
+        return np.mean([x for x in rejection_length_list])
+
+    def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, _partial_trace=None, _target_rejection_address=None, num_z_estimate_samples=100, num_z_inv_estimate_samples=10, z_p_gt=None, z_q_gt=None, *args, **kwargs):
         while True:
             state._init_traces(func=self.forward, trace_mode=trace_mode, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
             state._begin_trace()
@@ -53,17 +70,23 @@ class Model():
             if trace_mode == TraceMode.POSTERIOR and importance_weighting == ImportanceWeighting.IW1 and (inference_engine==InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK or proposal is not None):
                 # ^^ Conditions for rejection sampling constants being needed
                 for rejection_address, rejsmp_variable in trace.variables_rejsmp_dict_address.items():
-                    state._init_traces(trace_mode=trace_mode, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
-                    z_q_estimate = self._estimate_z(trace, rejection_address, num_z_estimate_samples, *args, **kwargs)
+                    if z_q_gt is None:
+                        state._init_traces(trace_mode=trace_mode, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
+                        z_q_estimate = self._estimate_z(trace, rejection_address, num_z_estimate_samples, *args, **kwargs)
+                    else:
+                        z_q_estimate = z_q_gt
 
-                    state._init_traces(trace_mode=TraceMode.PRIOR, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
-                    z_p_estimate = self._estimate_z(trace, rejection_address, num_z_estimate_samples, *args, **kwargs)
+                    if z_p_gt is None:
+                        state._init_traces(trace_mode=TraceMode.PRIOR, func=self.forward, prior_inflation=prior_inflation, inference_engine=inference_engine, inference_network=inference_network, observe=observe, proposal=proposal, metropolis_hastings_trace=metropolis_hastings_trace, address_dictionary=self._address_dictionary, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting)
+                        z_p_inv_estimate = self._estimate_z_inv(trace, rejection_address, num_z_inv_estimate_samples, *args, **kwargs)
+                    else:
+                        z_p_inv_estimate = 1/z_p_gt
                     
-                    rejsmp_variable.log_importance_weight = float(np.log(z_q_estimate / z_p_estimate))
-                    rejsmp_variable.log_prob = float(np.log(util.to_tensor(1) / z_q_estimate))
+                    rejsmp_variable.log_importance_weight = float(np.log(z_q_estimate * z_p_inv_estimate))
+                    rejsmp_variable.log_prob = float(np.log(util.to_tensor(1) / z_q_estimate)) # TODO: only for debugging purposes. This biased.
 
                     trace.log_importance_weight += rejsmp_variable.log_importance_weight
-                    trace.log_prob += rejsmp_variable.log_prob
+                    #trace.log_prob += rejsmp_variable.log_prob
                     # TODO: compute trace's log_prob and log_importance_weight at the very end using a new function?
             yield trace
 
