@@ -125,7 +125,6 @@ class OnlineDataset(Dataset):
         util.progress_bar_init('Saving offline dataset, traces:{}, traces per file:{}, files:{}'.format(num_traces, num_traces_per_file, num_files), num_traces, 'Traces')
         i = 0
         while i < num_traces:
-            i += num_traces_per_file
             file_name = os.path.join(dataset_dir, 'pyprob_traces_{}_{}'.format(num_traces_per_file, str(uuid.uuid4())))
             shelf = shelve.open(file_name, flag='c')
             for j in range(num_traces_per_file):
@@ -133,7 +132,9 @@ class OnlineDataset(Dataset):
                 self._prune_trace(trace)
                 shelf[str(j)] = trace
                 shelf['__length'] = j + 1
+                util.progress_bar_update(i+j+1)
             shelf.close()
+            i += num_traces_per_file
             util.progress_bar_update(i)
         util.progress_bar_end()
 
