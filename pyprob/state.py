@@ -82,7 +82,7 @@ class RejectionEndException(Exception):
 
 
 # _extract_address and _extract_target_of_assignment code by Tobias Kohn (kohnt@tobiaskohn.ch)
-def _extract_address(root_function_name, user_specified_name):
+def _extract_address(root_function_name, user_specified_name, append_rejectoin=True):
     # Retun an address in the format:
     # 'instruction pointer' __ 'qualified function name'
     frame = sys._getframe(2)
@@ -102,6 +102,9 @@ def _extract_address(root_function_name, user_specified_name):
             break
         frame = frame.f_back
     address_base_noname = '{}__{}'.format(ip, '__'.join(reversed(names)))
+    if append_rejectoin:
+        if not _rejection_sampling_stack.isempty():
+            address_base_noname = '{}_RS_{}'.format(address_base_noname, _rejection_sampling_stack.top_variable.address)
     return '{}__{}'.format(address_base_noname, user_specified_name)
 
 
@@ -231,7 +234,8 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     replace = False
     rejection_address = None
     # If there is not active rejection sampling, the variable is not "replaced"
-    if (not _rejection_sampling_stack.isempty()) and _importance_weighting != ImportanceWeighting.IW2:
+    if (not _rejection_sampling_stack.isempty()) and (_importance_weighting != ImportanceWeighting.IW2 or _trace_mode != TraceMode.POSTERIOR):
+        #TODO: problematic conditions. _importance_weighting != ImportanceWeighting.IW2 needs to be fixed. Not sure about _trace_mode != TraceMode.POSTERIOR
         replace = True
         rejection_address = _rejection_sampling_stack.top_variable.address
         if _rejection_sampling_stack.top_variable.control == False:
@@ -415,7 +419,8 @@ def rejection_sampling(control=True, name=None, address=None):
     rejection_sampling_suffix = 'rejsmp'
 
     if address is None:
-        address_base = _extract_address(_current_trace_root_function_name, name) + '__' + rejection_sampling_suffix
+        address_base = _extract_address(_current_trace_root_function_name, name, append_rejectoin=False) + '__' + rejection_sampling_suffix
+        # Prblematic for nested rejection sampling!
     else:
         address_base = address + '__' + rejection_sampling_suffix
     if _address_dictionary is not None:
