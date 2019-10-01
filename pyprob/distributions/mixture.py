@@ -5,26 +5,34 @@ from .. import util
 
 
 class Mixture(Distribution):
-    def __init__(self, distributions, probs=None):
+    def __init__(self, distributions, probs=None, logits=None):
         self._distributions = distributions
         self.length = len(distributions)
-        if probs is None:
-            self._probs = util.to_tensor(torch.zeros(self.length)).fill_(1./self.length)
-        else:
+        self._probs = probs
+        self._logits = logits
+        if probs is None and logits is None:
+            self._probs = torch.zeros(self.length).fill_(1./self.length).unsqueeze(0)
+        elif probs is not None and logits is not None:
+            raise ValueError("ERROR in mixture distribution. One of logits or probs has to be none!")
+        elif probs is not None:
             self._probs = util.to_tensor(probs)
             self._probs = self._probs / self._probs.sum(-1, keepdim=True)
-        self._log_probs = torch.log(util.clamp_probs(self._probs))
+            if self._probs.dim() == 1:
+                self._probs = self._probs.unsqueeze(0)
+            self._log_probs = torch.log(util.clamp_probs(self._probs))
+        elif logits is not None:
+            self._log_probs = util.clamp_logits(logits)
 
         event_shape = torch.Size()
-        if self._probs.dim() == 1:
+        if self._log_probs.dim() == 0:
             batch_shape = torch.Size()
             self._batch_length = 0
-        elif self._probs.dim() == 2:
-            batch_shape = torch.Size([self._probs.size(0)])
-            self._batch_length = self._probs.size(0)
+        elif self._log_probs.dim() > 0 and self._log_probs.dim() <= 2 :
+            batch_shape = torch.Size([self._log_probs.size(0)])
+            self._batch_length = self._log_probs.size(0)
         else:
             raise ValueError('Expecting a 1d or 2d (batched) mixture probabilities.')
-        self._mixing_dist = Categorical(self._probs)
+        self._mixing_dist = Categorical(logits=self._log_probs)
         self._mean = None
         self._variance = None
         super().__init__(name='Mixture', address_suffix='Mixture({})'.format(', '.join([d._address_suffix for d in self._distributions])), batch_shape=batch_shape, event_shape=event_shape)
@@ -40,8 +48,10 @@ class Mixture(Distribution):
             value = util.to_tensor(value).squeeze()
             lp = torch.logsumexp(self._log_probs + util.to_tensor([d.log_prob(value) for d in self._distributions]), dim=0)
         else:
-            value = util.to_tensor(value).view(self._batch_length)
-            lp = torch.logsumexp(self._log_probs + torch.stack([d.log_prob(value).squeeze(-1) for d in self._distributions]).view(-1, self._batch_length).t(), dim=1)
+            value = util.to_tensor(value).view(self._batch_length, -1)
+            bs = value.size(0)
+            tmp = torch.stack([d.log_prob(value) for d in self._distributions]).view(len(self._distributions), bs, -1).sum(-1).t()
+            lp = torch.logsumexp(self._log_probs + tmp, dim=1)
         return torch.sum(lp) if sum else lp
 
     def sample(self):
@@ -60,7 +70,8 @@ class Mixture(Distribution):
             for b in range(self._batch_length):
                 i = int(indices[b])
                 ret.append(dist_samples[i][b])
-            return util.to_tensor(ret)
+            ret = torch.stack(ret,dim=0)
+            return ret
 
     @property
     def mean(self):
