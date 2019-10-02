@@ -234,7 +234,7 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
     replace = False
     rejection_address = None
     # If there is not active rejection sampling, the variable is not "replaced"
-    if (not _rejection_sampling_stack.isempty()) and (_importance_weighting != ImportanceWeighting.IW2 or _trace_mode != TraceMode.POSTERIOR):
+    if (not _rejection_sampling_stack.isempty()):
         #TODO: problematic conditions. _importance_weighting != ImportanceWeighting.IW2 needs to be fixed. Not sure about _trace_mode != TraceMode.POSTERIOR
         replace = True
         rejection_address = _rejection_sampling_stack.top_variable.address
@@ -404,6 +404,9 @@ def sample(distribution, control=True, replace=False, name=None, address=None):
                     log_prob = distribution.log_prob(value, sum=True)
                     log_importance_weight = float(log_prob) - float(inflated_distribution.log_prob(value, sum=True))  # To account for prior inflation
 
+            if _trace_mode == TraceMode.POSTERIOR and _importance_weighting == ImportanceWeighting.IW2:
+                # IW2 should take all the weights into account => no replaced variable
+                replace = False
             variable = Variable(distribution=distribution, value=value, address_base=address_base, address=address, instance=instance, log_prob=log_prob, log_importance_weight=log_importance_weight, control=control, replace=replace, name=name, observed=observed, reused=reused)
             variable.rejection_address = rejection_address
     _current_trace.add(variable)
