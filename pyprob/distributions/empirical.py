@@ -68,6 +68,28 @@ class Empirical(Distribution):
             weights = self._categorical.probs
             self._effective_sample_size = 1. / weights.pow(2).sum()
             name = 'Concatenated empirical, length: {:,}, ESS: {:,.2f}'.format(self._length, self._effective_sample_size)
+            child = self._concat_empiricals[0]
+            child_metadata = None
+            for v in child.metadata.values():
+                if isinstance(v, dict) and 'op' in v and v['op'] == 'posterior':
+                    child_metadata = v
+                    break
+            if child_metadata is not None:
+                self.add_metadata(**child_metadata)
+                if 'IC' in child.name:
+                    train_traces = child_metadata['train_traces']
+                    name = 'Posterior, IC, traces: {:,}, train. traces: {:,}, ESS: {:,.2f}'.format(self._length, train_traces, self._effective_sample_size)
+                elif 'RMH' in child.name:
+                    thinning_steps = child_metadata['thinning_steps']
+                    name = 'Posterior, RMH, traces: {:,}'.format(self._length)
+                    #samples_reused = sum([c._metadata['num_samples_reuised'] for c in self._concat_empiricals])
+                    #samples_all = sum([c._metadata['num_samples'] for c in self._concat_empiricals])
+                    #num_traces = sum([c._metadata['num_traces'] for c in self._concat_empiricals])
+                    #traces_accepted = sum([c._metadata['num_traces_accepted'] for c in self._concat_empiricals])
+                    #name = 'Posterior, RMH, traces: {:,}{}, accepted: {:,.2f}%, sample reuse: {:,.2f}%'.format(self._length, '' if thinning_steps == 1 else ' (thinning steps: {:,})'.format(thinning_steps), 100 * (traces_accepted / num_traces), 100 * samples_reused / samples_all)
+                elif 'IS' in child.name:
+                    name = 'Posterior, IS, traces: {:,}, ESS: {:,.2f}'.format(self._length, self._effective_sample_size)
+            
             # self._metadata.append('Begin concatenate empiricals ({})'.format(len(self._concat_empiricals)))
             # for i, emp in enumerate(self._concat_empiricals):
             #     self._metadata.append('Begin source empirical ({}/{})'.format(i+1, len(self._concat_empiricals)))
