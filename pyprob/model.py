@@ -83,7 +83,7 @@ class Model():
                         z_p_inv_estimate = 1/z_p_gt
                     
                     rejsmp_variable.log_importance_weight = float(np.log(z_q_estimate * z_p_inv_estimate))
-                    rejsmp_variable.log_prob = float(np.log(util.to_tensor(1) / z_q_estimate)) # TODO: only for debugging purposes. This biased.
+                    #rejsmp_variable.log_prob = float(np.log(util.to_tensor(1) / z_q_estimate)) # TODO: only for debugging purposes. This is biased.
 
                     trace.log_importance_weight += rejsmp_variable.log_importance_weight
                     #trace.log_prob += rejsmp_variable.log_prob
@@ -172,18 +172,19 @@ class Model():
     def prior_results(self, num_traces=10, prior_inflation=PriorInflation.DISABLED, map_func=lambda trace: trace.result, file_name=None, likelihood_importance=1., *args, **kwargs):
         return self.prior(num_traces=num_traces, prior_inflation=prior_inflation, map_func=map_func, file_name=file_name, likelihood_importance=likelihood_importance, *args, **kwargs)
 
-    def posterior(self, num_traces=10, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, initial_trace=None, map_func=None, observe=None, file_name=None, thinning_steps=None, likelihood_importance=1., *args, **kwargs):
+    def posterior(self, num_traces=10, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, initial_trace=None, map_func=None, observe=None, file_name=None, thinning_steps=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, num_z_inv_estimate_samples=10, num_z_estimate_samples=100, *args, **kwargs):
         if inference_engine == InferenceEngine.IMPORTANCE_SAMPLING:
-            posterior = self._traces(num_traces=num_traces, trace_mode=TraceMode.POSTERIOR, inference_engine=inference_engine, inference_network=None, map_func=map_func, observe=observe, file_name=file_name, likelihood_importance=likelihood_importance, *args, **kwargs)
+            posterior = self._traces(num_traces=num_traces, trace_mode=TraceMode.POSTERIOR, inference_engine=inference_engine, inference_network=None, map_func=map_func, observe=observe, file_name=file_name, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting, num_z_inv_estimate_samples=num_z_inv_estimate_samples, num_z_estimate_samples=num_z_estimate_samples, *args, **kwargs)
             posterior.rename('Posterior, IS, traces: {:,}, ESS: {:,.2f}'.format(posterior.length, posterior.effective_sample_size))
             posterior.add_metadata(op='posterior', num_traces=num_traces, inference_engine=str(inference_engine), effective_sample_size=posterior.effective_sample_size, likelihood_importance=likelihood_importance)
         elif inference_engine == InferenceEngine.IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK:
             if self._inference_network is None:
                 raise RuntimeError('Cannot run inference engine IMPORTANCE_SAMPLING_WITH_INFERENCE_NETWORK because no inference network for this model is available. Use learn_inference_network or load_inference_network first.')
             with torch.no_grad():
-                posterior = self._traces(num_traces=num_traces, trace_mode=TraceMode.POSTERIOR, inference_engine=inference_engine, inference_network=self._inference_network, map_func=map_func, observe=observe, file_name=file_name, likelihood_importance=likelihood_importance, *args, **kwargs)
+                posterior = self._traces(num_traces=num_traces, trace_mode=TraceMode.POSTERIOR, inference_engine=inference_engine, inference_network=self._inference_network, map_func=map_func, observe=observe, file_name=file_name, likelihood_importance=likelihood_importance, importance_weighting=importance_weighting, num_z_inv_estimate_samples=num_z_inv_estimate_samples, num_z_estimate_samples=num_z_estimate_samples, *args, **kwargs)
             posterior.rename('Posterior, IC, traces: {:,}, train. traces: {:,}, ESS: {:,.2f}'.format(posterior.length, self._inference_network._total_train_traces, posterior.effective_sample_size))
-            posterior.add_metadata(op='posterior', num_traces=num_traces, inference_engine=str(inference_engine), effective_sample_size=posterior.effective_sample_size, likelihood_importance=likelihood_importance, train_traces=self._inference_network._total_train_traces)
+            posterior.add_metadata(op='posterior', num_traces=num_traces, inference_engine=str(inference_engine), effective_sample_size=posterior.effective_sample_size, likelihood_importance=likelihood_importance, train_traces=self._inference_network._total_train_traces,
+                                   importance_weighting=importance_weighting, num_z_estimate_samples=num_z_estimate_samples, num_z_inv_estimate_samples=num_z_inv_estimate_samples)
         else:  # inference_engine == InferenceEngine.LIGHTWEIGHT_METROPOLIS_HASTINGS or inference_engine == InferenceEngine.RANDOM_WALK_METROPOLIS_HASTINGS
             posterior = Empirical(file_name=file_name)
             if map_func is None:
