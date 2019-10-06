@@ -28,6 +28,9 @@ def _address_stats(trace_dist, use_address_base=True, reuse_ids_from_address_sta
         trace = trace_dist._get_value(i)
         trace_weight = float(trace_dist._get_weight(i))
         for variable in trace.variables:
+            if variable.rejsmp == True:
+                # Skip rejection sampling tags
+                continue
             address_base = variable.address_base
             address = variable.address
             key = address_base if use_address_base else address
@@ -211,6 +214,8 @@ def address_histograms(trace_dists, ground_truth_trace=None, figsize=(15, 12), b
             i += 1
             address_id = value['address_id']
             variable = value['variable']
+            if variable.rejection_address is not None:
+                address_id = 'RS_{}_{}'.format(variable.rejection_address.split('_')[-1], address_id)
             can_render = True
             try:
                 if use_address_base:
