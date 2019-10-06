@@ -46,18 +46,20 @@ class Model():
         if num_estimate_samples < 1:
             return 1
 
-        rejection_length_list = []
-        while len(rejection_length_list) < num_estimate_samples:
+        acceptance_samples = []
+        while len(acceptance_samples) < num_estimate_samples:
             try:
                 partial_trace = state.PartialTrace(trace, rejection_address)
                 state._begin_trace(partial_trace=partial_trace, target_rejection_address=rejection_address)
                 self.forward(*args, **kwargs)
             except state.RejectionEndException as e:
                 for x in [0] * (e.length-1) + [1]:
-                    rejection_length_list.append(x)
-                    #if len(rejection_length_list) >= num_estimate_samples:
+                    acceptance_samples.append(x)
+                    #if len(acceptance_samples) >= num_estimate_samples:
                     #    break
-        return np.mean([x for x in rejection_length_list])
+        estimate = np.mean([x for x in acceptance_samples])
+        #TODO: ^ Is it okay to do this even though the length of acceptace_samples might be larger than what it's expected to be (num_estimate_samples)?
+        return estimate
 
     def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, _partial_trace=None, _target_rejection_address=None, num_z_estimate_samples=100, num_z_inv_estimate_samples=10, z_p_gt=None, z_q_gt=None, *args, **kwargs):
         while True:
