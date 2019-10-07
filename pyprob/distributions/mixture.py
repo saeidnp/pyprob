@@ -17,14 +17,14 @@ class Mixture(Distribution):
         elif probs is not None:
             self._probs = util.to_tensor(probs)
             self._probs = self._probs / self._probs.sum(-1, keepdim=True)
-            if self._probs.dim() == 1:
-                self._probs = self._probs.unsqueeze(0)
+            # if self._probs.dim() == 1:
+            #     self._probs = self._probs.unsqueeze(0)
             self._log_probs = torch.log(util.clamp_probs(self._probs))
         elif logits is not None:
             self._log_probs = util.clamp_logits(logits)
 
         event_shape = torch.Size()
-        if self._log_probs.dim() == 0:
+        if self._log_probs.dim() == 1:
             batch_shape = torch.Size()
             self._batch_length = 0
         elif self._log_probs.dim() > 0 and self._log_probs.dim() <= 2 :
