@@ -85,6 +85,8 @@ class RejectionEndException(Exception):
 def _extract_address(root_function_name, user_specified_name, append_rejectoin=True):
     # Retun an address in the format:
     # 'instruction pointer' __ 'qualified function name'
+    if user_specified_name is not None and user_specified_name.startswith('__'):
+        user_specified_name = None # TODO: temporary for mini sherpa experimetns.
     frame = sys._getframe(2)
     ip = frame.f_lasti
     names = []
