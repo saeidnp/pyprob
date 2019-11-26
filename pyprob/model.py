@@ -57,8 +57,9 @@ class Model():
                     acceptance_samples.append(x)
                     #if len(acceptance_samples) >= num_estimate_samples:
                     #    break
-        estimate = np.mean([x for x in acceptance_samples])
+        #estimate = np.mean([x for x in acceptance_samples])
         #TODO: ^ Is it okay to do this even though the length of acceptace_samples might be larger than what it's expected to be (num_estimate_samples)?
+        estimate = np.mean(acceptance_samples[:num_estimate_samples])
         return estimate
 
     def _trace_generator(self, trace_mode=TraceMode.PRIOR, prior_inflation=PriorInflation.DISABLED, inference_engine=InferenceEngine.IMPORTANCE_SAMPLING, inference_network=None, observe=None, proposal=None, metropolis_hastings_trace=None, likelihood_importance=1., importance_weighting=ImportanceWeighting.IW0, _partial_trace=None, _target_rejection_address=None, num_z_estimate_samples=100, num_z_inv_estimate_samples=10, z_p_gt=None, z_q_gt=None, *args, **kwargs):
