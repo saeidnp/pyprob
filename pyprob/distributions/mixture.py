@@ -47,10 +47,10 @@ class Mixture(Distribution):
         if self._batch_length == 0:
             value = util.to_tensor(value).squeeze()
             dists_lp = [d.log_prob(value) for d in self._distributions]
-            if dists_lp[0].dim() == 0:
-                lp = torch.logsumexp(self._log_probs + util.to_tensor(dists_lp), dim=0)
-            else:
-                lp = torch.logsumexp(self._log_probs.reshape(-1, 1) + torch.stack([util.to_tensor(x) for x in dists_lp]), dim=0)
+            if dists_lp[0].dim() != dists_lp[1].dim() or dists_lp[0].dim != 0:
+                assert sum==True
+                dists_lp = [torch.sum(d_lp) for d_lp in dists_lp]
+            lp = torch.logsumexp(self._log_probs + util.to_tensor(dists_lp), dim=0)
         else:
             value = util.to_tensor(value).view(self._batch_length, -1)
             bs = value.size(0)
